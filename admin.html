@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+    <title>Edit class schedule</title>
+</head>
+<body data-admin="false">
+    <header class="site-header">
+        <a class="site-title" href="index.html">Class-2 Schedule</a>
+        <a class="admin-link" href="index.html">View schedule</a>
+    </header>
+    <aside class="event-bar" aria-label="Schedule updates">
+        <span class="sr-only event-announcement" aria-live="polite"></span>
+        <div class="event-track" aria-hidden="true">
+            <div class="event-group"><span class="event-message">Schedule updates: Schedule changes and news will be posted here.</span></div>
+            <div class="event-group" aria-hidden="true"><span class="event-message">Schedule updates: Schedule changes and news will be posted here.</span></div>
+        </div>
+    </aside>
+    <main id="admin-auth" class="content">
+        <section id="admin-login" class="auth-card">
+            <h1>Admin login</h1>
+            <p class="auth-warning">Choose your login ID and enter its predefined password. Changes sync through Firebase when connected. These public, browser-based passwords are not secure and can be viewed or bypassed.</p>
+            <form id="admin-login-form">
+                <label>
+                    Login ID
+                    <input name="username" type="text" autocomplete="username"
+                        autocapitalize="none" spellcheck="false" placeholder="Enter your login ID" required>
+                </label>
+                <label>
+                    Password
+                    <input name="password" type="password" autocomplete="current-password"
+                        placeholder="Enter your password" required>
+                </label>
+                <button class="auth-button" type="submit">Log in</button>
+                <p id="login-error" class="auth-error" aria-live="polite"></p>
+            </form>
+        </section>
+    </main>
+    <main id="admin-panel" class="content" hidden>
+        <h1>Edit class schedule</h1>
+        <div class="admin-tools">
+            <p>Edit your class details or move them to another day and time. Changes sync through Firebase to other devices.</p>
+            <div class="admin-account-actions">
+                <span id="admin-role-label" class="admin-role-label"></span>
+                <button id="logout-admin" class="reset-button" type="button">Log out</button>
+                <button id="reset-schedule" class="reset-button" type="button">Restore default schedule</button>
+            </div>
+        </div>
+        <p id="schedule-status" class="schedule-status" aria-live="polite">Connecting to the shared schedule...</p>
+        <div class="table-wrapper">
+            <table class="schedule-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Time</th>
+                        <th scope="col">Monday</th>
+                        <th scope="col">Tuesday</th>
+                        <th scope="col">Wednesday</th>
+                        <th scope="col">Thursday</th>
+                        <th scope="col">Friday</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </main>
+    <script defer src="admin-auth.js"></script>
+    <footer class="site-footer">© 2026 Great Empror. All rights reserved.</footer>
+</body>
+</html>
