@@ -19,6 +19,14 @@ const describeAuthError = (error) => {
     return error.message;
 };
 
+const describeAdminProfileError = (error) => {
+    if (!navigator.onLine ||
+        ["unavailable", "deadline-exceeded", "network-request-failed"].includes(error?.code)) {
+        return "Could not reach Firestore to load this account's admin role. Check your internet connection and try again.";
+    }
+    return describeAuthError(error);
+};
+
 const showLogin = () => {
     authPage.hidden = false;
     loginPanel.hidden = false;
@@ -85,7 +93,8 @@ const handleAuthenticatedUser = async (user) => {
         loginForm.reset();
         showAdmin(profile);
     } catch (error) {
-        setLoginError(`Could not load this account's admin role: ${describeAuthError(error)}`);
+        console.error("Could not load admin role:", error.message);
+        setLoginError(`Could not load this account's admin role: ${describeAdminProfileError(error)}`);
         await signOutAfterError();
     }
 };
