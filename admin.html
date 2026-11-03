@@ -6,7 +6,7 @@
     <link rel="stylesheet" href="style.css">
     <title>Edit class schedule</title>
 </head>
-<body data-admin="false">
+<body data-admin="true" data-admin-role="super">
     <header class="site-header">
         <a class="site-title" href="index.html">Class-2 Schedule</a>
         <a class="admin-link" href="index.html">View schedule</a>
@@ -18,33 +18,11 @@
             <div class="event-group" aria-hidden="true"><span class="event-message">Schedule updates: Schedule changes and news will be posted here.</span></div>
         </div>
     </aside>
-    <main id="admin-auth" class="content">
-        <section id="admin-login" class="auth-card">
-            <h1>Admin login</h1>
-            <p class="auth-warning">Sign in with the email address and password created for you in Firebase Authentication.</p>
-            <form id="admin-login-form">
-                <label>
-                    Email
-                    <input name="email" type="email" autocomplete="username"
-                        autocapitalize="none" spellcheck="false" placeholder="Enter your email" required>
-                </label>
-                <label>
-                    Password
-                    <input name="password" type="password" autocomplete="current-password"
-                        placeholder="Enter your password" required>
-                </label>
-                <button class="auth-button" type="submit">Log in</button>
-                <p id="login-error" class="auth-error" aria-live="polite"></p>
-            </form>
-        </section>
-    </main>
-    <main id="admin-panel" class="content" hidden>
+    <main id="admin-panel" class="content">
         <h1>Edit class schedule</h1>
         <div class="admin-tools">
-            <p>Edit your class details or move them to another day and time. Changes sync through Firebase to other devices.</p>
+            <p class="auth-warning">Temporary public edit mode: anyone who can access this page can change the shared schedule.</p>
             <div class="admin-account-actions">
-                <span id="admin-role-label" class="admin-role-label"></span>
-                <button id="logout-admin" class="reset-button" type="button">Log out</button>
                 <button id="reset-schedule" class="reset-button" type="button">Restore default schedule</button>
             </div>
         </div>
@@ -65,7 +43,7 @@
             </table>
         </div>
     </main>
-    <script defer src="admin-auth.js"></script>
+    <script type="module" src="schedule.js"></script>
     <footer class="site-footer">© 2026 Great Empror. All rights reserved.</footer>
 </body>
 </html>

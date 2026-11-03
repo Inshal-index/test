@@ -1,11 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
 import {
-    getAuth,
-    onAuthStateChanged,
-    signInWithEmailAndPassword,
-    signOut
-} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
-import {
     doc,
     getDoc,
     getFirestore,
@@ -26,6 +20,5 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-export const auth = getAuth(app);
 export const db = getFirestore(app);
-export { doc, getDoc, onAuthStateChanged, onSnapshot, setDoc, signInWithEmailAndPassword, signOut };
+export { doc, getDoc, onSnapshot, setDoc };
