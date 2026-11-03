@@ -1,40 +1,32 @@
-# Firebase and teacher logins
+# Firebase Authentication and schedule setup
 
-## Logins
+## Set up admin accounts
 
-The site uses a simple browser-based login, not Firebase Authentication. The login IDs and predefined passwords are in `admin-auth.js`:
+The admin page uses Firebase Authentication email/password sign-in. It does not create accounts from the website; a Firebase project owner must provision each account and its role.
 
-| Login ID | Password | Access |
-| --- | --- | --- |
-| `li-zhenxinang` | `li-class1402` | Edit LI ZHENXINANG's classes |
-| `zhang-yan` | `zhang-class5430` | Edit ZHANG YAN's classes |
-| `wang-sen` | `wang-class1505` | Edit WANG SEN's classes |
-| `lu-youxia` | `lu-aboutchina` | Edit LU YOUXIA's classes |
-| `peng-tao` | `peng-culturalpe` | Edit PENG TAO's classes |
-| `he-dong` | `he-introai1505` | Edit HE DONG's classes |
-| `superadmin` | `iamironman` | Edit all classes and restore the default schedule |
+1. In the [Firebase Console](https://console.firebase.google.com/), open project `schedule-23a60`.
+2. In **Project settings > General > Your apps**, copy the current config for the web app and make sure the values in `firebase.js` match. The login will fail if the API key is invalid or belongs to another project.
+3. Go to **Authentication > Sign-in method** and enable **Email/Password**.
+4. Go to **Authentication > Users > Add user**. Create a user with the teacher's email and a unique password. Repeat for each teacher and the super admin.
+5. Copy each user's **UID** from the Users list.
+6. In **Firestore Database > Data**, create a collection named `admins`. For each account, create a document whose document ID is that user's UID:
+   - Teacher: add string fields `role` = `teacher` and `teacher` = the exact schedule teacher name (for example, `ZHANG YAN`).
+   - Super admin: add string field `role` = `super`.
+7. Deploy the site and Firestore rules from this folder:
 
-These passwords and the teacher-role checks are embedded in public JavaScript. They are convenient UI restrictions, not secure authentication; anyone can inspect or bypass them.
-After login, the current tab remembers the login ID in session storage, so refreshing the page keeps the editor open. Logging out or closing the tab ends that browser session.
+   ```powershell
+   firebase login
+   firebase deploy --only hosting,firestore:rules
+   ```
 
-## Shared schedule and notifications
+Users sign in with their Firebase email address and password. The former browser login IDs are no longer credentials; use the corresponding teacher name when setting each Firestore profile. The `super` role can edit all classes and restore the default schedule.
 
-The schedule and announcement are saved in Firestore documents `schedules/current` and `announcements/current`. Firestore listeners update open schedule pages when another device saves a change.
+The website only allows users with an `admins/{uid}` profile to open the editor. The rules prevent unauthenticated users and users without a profile from writing schedules or announcements. Teacher-specific edit restrictions are currently enforced by the editor UI; Firestore rules authorize writes for any provisioned admin profile, so do not treat teacher roles as a security boundary against a technically capable signed-in user.
 
-The rules in `firestore.rules` allow anyone to create or update these two documents without signing in. This is necessary for cross-device editing with the browser-only passwords, but it means anyone who can reach the project can bypass the login and edit the shared schedule or notification. The rules do not enforce teacher-specific permissions.
+## Shared schedule
 
-Because schedule writes are now public, do not store confidential information in Firestore. Review Firebase billing and usage limits to reduce the risk of unexpected costs or abuse.
+The schedule and announcement are stored in Firestore documents `schedules/current` and `announcements/current`. Open the deployed Firebase Hosting HTTPS URL on each device; do not use a `file://` URL. For local testing on Windows, run `.\start-local-server.ps1` in PowerShell from this folder and open `http://127.0.0.1:8765/admin.html`; keep the PowerShell window open while using the site.
 
-The editor opens after a valid browser login without waiting for Firebase. When Firebase is unavailable, edits are saved only in the current browser and will not sync to other devices.
+The first admin visit initializes missing schedule and announcement documents with the defaults. If existing browser-local schedule data exists, it is used to initialize a missing schedule document. If Firestore is not enabled or the deployed rules are out of date, the page reports the Firebase error below the schedule.
 
-Before deploying, make sure the Firebase project `schedule-23a60` has a Firestore database. Then install the Firebase CLI, sign in, and deploy the site and rules from this folder:
-
-```powershell
-firebase deploy --only hosting,firestore:rules
-```
-
-The included `.firebaserc` selects project `schedule-23a60`. Open the deployed Firebase Hosting URL on each device; do not use a `file://` URL, which prevents browsers from loading the schedule's JavaScript modules. For local testing on Windows, run `.\start-local-server.ps1` in PowerShell from this folder and open `http://127.0.0.1:8765/admin.html`; keep the PowerShell window open while using the site. If Firestore is not enabled or the updated rules have not been deployed, the page will report the Firebase error below the schedule.
-
-The first admin visit initializes missing schedule and announcement documents with the defaults. If existing browser-local schedule data exists, it is used to initialize a missing schedule document.
-
-For secure logins and server-enforced teacher permissions, replace the browser-only login with a trusted backend or Firebase Authentication and matching Firestore rules.
+Review Firebase billing and usage limits. The schedule and announcements are readable by anyone, so do not store confidential information in them.

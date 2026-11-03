@@ -1,7 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Public writes are required for the browser-only teacher login; those roles are not verifiable here.
+    function isAdmin() {
+      return request.auth != null &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
     match /admins/{userId} {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow write: if false;
@@ -9,12 +13,12 @@ service cloud.firestore {
 
     match /schedules/{scheduleId} {
       allow read: if true;
-      allow create, update: if scheduleId == 'current';
+      allow create, update: if scheduleId == 'current' && isAdmin();
     }
 
     match /announcements/{announcementId} {
       allow read: if true;
-      allow create, update: if announcementId == 'current';
+      allow create, update: if announcementId == 'current' && isAdmin();
     }
   }
 }
