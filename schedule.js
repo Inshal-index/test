@@ -87,6 +87,14 @@
                 )
             )
         );
+    const serializeSchedule = (value) => JSON.stringify(value);
+    const parseFirestoreSchedule = (value) => {
+        const parsedSchedule = typeof value === "string" ? JSON.parse(value) : value;
+        if (!isValidSchedule(parsedSchedule)) {
+            throw new Error("The Firebase schedule document has an invalid format.");
+        }
+        return parsedSchedule;
+    };
     const setStatus = (message) => {
         if (status) {
             status.textContent = message;
@@ -164,12 +172,9 @@
             })
         ]);
         if (scheduleSnapshot.exists()) {
-            const savedSchedule = scheduleSnapshot.data().schedule;
-            if (!isValidSchedule(savedSchedule)) {
-                throw new Error("The Firebase schedule document has an invalid format.");
-            }
+            const savedSchedule = parseFirestoreSchedule(scheduleSnapshot.data().schedule);
             if (hasLocalScheduleChanges) {
-                await firebase.setDoc(scheduleRef, { schedule });
+                await firebase.setDoc(scheduleRef, { schedule: serializeSchedule(schedule) });
                 hasLocalScheduleChanges = false;
             } else {
                 schedule = savedSchedule;
@@ -184,7 +189,7 @@
                 schedule = parsedSchedule;
             }
             if (isAdmin) {
-                await firebase.setDoc(scheduleRef, { schedule });
+                await firebase.setDoc(scheduleRef, { schedule: serializeSchedule(schedule) });
                 hasLocalScheduleChanges = false;
             }
         }
@@ -253,7 +258,7 @@
         }
         if (!snapshot.exists()) {
             if (isAdmin) {
-                firebase.setDoc(scheduleRef, { schedule }).catch((error) => {
+                firebase.setDoc(scheduleRef, { schedule: serializeSchedule(schedule) }).catch((error) => {
                     setStatus(`Could not initialize the shared schedule: ${error.message}`);
                 });
             }
@@ -265,9 +270,11 @@
         if (saveTimer) {
             return;
         }
-        const updatedSchedule = snapshot.data().schedule;
-        if (!isValidSchedule(updatedSchedule)) {
-            setStatus("Could not load schedule update: the Firebase schedule has an invalid format.");
+        let updatedSchedule;
+        try {
+            updatedSchedule = parseFirestoreSchedule(snapshot.data().schedule);
+        } catch (error) {
+            setStatus(`Could not load schedule update: ${error.message}`);
             return;
         }
         if (JSON.stringify(updatedSchedule) !== JSON.stringify(schedule)) {
@@ -462,7 +469,7 @@
                 return;
             }
             const savedSchedule = JSON.stringify(schedule);
-            firebase.setDoc(scheduleRef, { schedule }).then(() => {
+            firebase.setDoc(scheduleRef, { schedule: serializeSchedule(schedule) }).then(() => {
                 if (JSON.stringify(schedule) === savedSchedule) {
                     hasLocalScheduleChanges = false;
                 }
