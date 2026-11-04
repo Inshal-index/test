@@ -63,6 +63,7 @@
 
     const tableBody = document.querySelector(".schedule-table tbody");
     const status = document.getElementById("schedule-status");
+    const chinaTimeDisplay = document.getElementById("china-time");
     const weekNumberInput = document.getElementById("week-number-editor");
     const isAdmin = document.body.dataset.admin === "true";
     const isSuperAdmin = document.body.dataset.adminRole === "super";
@@ -93,6 +94,112 @@
     const serializeSchedule = (value) => JSON.stringify(value);
     const isValidWeekNumber = (value) =>
         Number.isInteger(value) && value >= 1 && value <= 53;
+    let networkChinaTime = null;
+    let chinaTimeSyncFailed = false;
+    const getMinutes = (timeText) => {
+        const match = timeText.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+        if (!match) {
+            return null;
+        }
+        let hour = Number(match[1]) % 12;
+        if (match[3].toUpperCase() === "PM") {
+            hour += 12;
+        }
+        return hour * 60 + Number(match[2]);
+    };
+    const updateChinaClockAndHighlight = () => {
+        if (!chinaTimeDisplay || !networkChinaTime) {
+            return;
+        }
+        const currentTime = new Date(
+            networkChinaTime.wallClockEpoch + performance.now() - networkChinaTime.syncedAt
+        );
+        const dayIndex = (currentTime.getUTCDay() + 6) % 7;
+        const formatter = new Intl.DateTimeFormat(undefined, {
+            timeZone: "UTC",
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            second: "2-digit"
+        });
+        chinaTimeDisplay.textContent =
+            `China Standard Time (UTC+8): ${formatter.format(currentTime)}` +
+            (chinaTimeSyncFailed ? " (last network sync; refresh failed)" : "");
+
+        const currentMinutes = currentTime.getUTCHours() * 60 + currentTime.getUTCMinutes();
+        tableBody.querySelectorAll("td[data-row][data-day]").forEach((cell) => {
+            const rowIndex = Number(cell.dataset.row);
+            const cellDay = Number(cell.dataset.day);
+            const range = times[rowIndex].split("-");
+            const start = getMinutes(range[0]);
+            const end = getMinutes(range[1]);
+            const isCurrent = cellDay === dayIndex &&
+                start !== null &&
+                end !== null &&
+                currentMinutes >= start &&
+                currentMinutes < end &&
+                schedule[rowIndex][cellDay].length > 0;
+            cell.classList.toggle("is-current-lecture", isCurrent);
+            cell.querySelectorAll(".schedule-event").forEach((lecture) => {
+                lecture.classList.toggle("is-current-lecture", isCurrent);
+            });
+        });
+    };
+    const syncChinaTime = async () => {
+        let timeout;
+        try {
+            const controller = new AbortController();
+            timeout = window.setTimeout(() => controller.abort(), 10000);
+            const response = await fetch(
+                "https://timeapi.io/api/Time/current/zone?timeZone=Asia/Shanghai",
+                { cache: "no-store", signal: controller.signal }
+            );
+            if (!response.ok) {
+                throw new Error(`Time service responded with HTTP ${response.status}.`);
+            }
+            const result = await response.json();
+            const components = [
+                result.year, result.month, result.day, result.hour,
+                result.minute, result.seconds, result.milliSeconds
+            ];
+            if (!components.every(Number.isInteger) ||
+                result.timeZone !== "Asia/Shanghai" ||
+                result.month < 1 || result.month > 12 ||
+                result.day < 1 || result.day > 31 ||
+                result.hour < 0 || result.hour > 23 ||
+                result.minute < 0 || result.minute > 59 ||
+                result.seconds < 0 || result.seconds > 59 ||
+                result.milliSeconds < 0 || result.milliSeconds > 999) {
+                throw new Error("Time service returned an invalid China time.");
+            }
+            networkChinaTime = {
+                wallClockEpoch: Date.UTC(
+                    result.year,
+                    result.month - 1,
+                    result.day,
+                    result.hour,
+                    result.minute,
+                    result.seconds,
+                    result.milliSeconds
+                ),
+                syncedAt: performance.now()
+            };
+            chinaTimeSyncFailed = false;
+            updateChinaClockAndHighlight();
+        } catch (error) {
+            chinaTimeSyncFailed = true;
+            if (networkChinaTime) {
+                updateChinaClockAndHighlight();
+            } else if (chinaTimeDisplay) {
+                chinaTimeDisplay.textContent =
+                    `China time is unavailable; ongoing lectures cannot be determined. ${error.message}`;
+            }
+        } finally {
+            window.clearTimeout(timeout);
+        }
+    };
     const updateWeekNumberDisplay = () => {
         document.querySelectorAll("[data-week-number]").forEach((element) => {
             element.textContent = String(weekNumber);
@@ -192,6 +299,10 @@
     updateWeekNumberDisplay();
     render();
     renderAnnouncement(announcement);
+    updateChinaClockAndHighlight();
+    void syncChinaTime();
+    window.setInterval(updateChinaClockAndHighlight, 1000);
+    window.setInterval(syncChinaTime, 5 * 60 * 1000);
     window.addEventListener("resize", () => renderAnnouncement(announcement));
     setStatus("Opening the editor and connecting to Firebase...");
 
@@ -589,6 +700,7 @@
             });
             tableBody.append(tableRow);
         });
+        updateChinaClockAndHighlight();
     }
 
     const save = (debounce = false) => {
