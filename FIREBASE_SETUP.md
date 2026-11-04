@@ -1,26 +1,27 @@
-# Firebase schedule setup
+# Firebase Authentication and schedule setup
 
-## Temporary public editing mode
+## Enable email/password login
 
-The admin page currently opens the editor without a login. Firestore rules also allow anyone to create or update `schedules/current` and `announcements/current`. Anyone who can reach the site can change the shared timetable and announcement; this is not secure and should only be used temporarily. Do not put private information in these documents.
+The admin page uses Firebase Authentication email/password accounts. Firestore being configured does not automatically create Authentication users.
 
-The local changes do not affect Firebase Hosting or deployed Firestore rules until you deploy them. To publish this version, run from this folder:
+1. In the [Firebase Console](https://console.firebase.google.com/), select project `schedule-23a60`.
+2. Open **Authentication > Sign-in method** and enable **Email/Password**.
+3. Open **Authentication > Users** and add the user's email and password if the account does not already exist. Reset the password there if needed.
+4. Copy the account's UID.
+5. In **Firestore Database > Data**, create a collection named `admins`. Create a document whose document ID is the Firebase Auth UID:
+   - Super admin: string field `role` = `super`.
+   - Teacher: string field `role` = `teacher`, and string field `teacher` = the exact teacher name shown in the timetable.
+6. Publish the contents of `firestore.rules` using **Cloud Firestore > Rules**, or deploy from this folder:
 
-```powershell
-firebase login
-firebase deploy --only hosting,firestore:rules
-```
+   ```powershell
+   firebase login
+   firebase deploy --only hosting,firestore:rules
+   ```
 
-To keep editing local only, run `.\start-local-server.ps1` in PowerShell and open `http://127.0.0.1:8765/admin.html`. The local server does not publish rules to Firebase. With protected rules still deployed, edits may be rejected by Firestore.
+Without an `admins/{uid}` profile, the user will authenticate but will not be allowed into the editor. The owner must create admin profiles manually; client-side code cannot create or change them.
 
 ## Shared schedule
 
-The schedule and announcement are stored in Firestore documents `schedules/current` and `announcements/current`. The schedule is stored as a JSON string because Firestore does not support nested arrays. Open the deployed Firebase Hosting HTTPS URL on each device; do not use a `file://` URL. For local testing on Windows, keep the PowerShell server window open while using the site.
+The schedule and announcement are stored in Firestore documents `schedules/current` and `announcements/current`. The schedule is a JSON string because Firestore does not support nested arrays. Open the deployed Firebase Hosting HTTPS URL on each device; do not use a `file://` URL. For local testing on Windows, run `.\start-local-server.ps1` in PowerShell from this folder and keep the window open.
 
-The first admin visit initializes missing schedule and announcement documents with the defaults. If existing browser-local schedule data exists, it is used to initialize a missing schedule document. If Firestore is not enabled or its rules do not allow writes, the page reports the Firebase error below the schedule.
-
-Review Firebase billing and usage limits. The schedule and announcements are readable by anyone, and public writes allow anyone to change them.
-
-## Restore authenticated editing
-
-Before deploying this site publicly, restore Firebase Authentication and restrictive Firestore rules. Public schedule writes are a temporary workaround, not a safe production permission model.
+Schedule and announcement reads are public. Firestore writes require a signed-in account with an `admins/{uid}` profile. Teacher-only editing is enforced by the editor UI; the rules authorize any provisioned admin profile to write, so they do not enforce teacher-specific permissions against a technically capable signed-in user.

@@ -64,7 +64,7 @@
     const isAdmin = document.body.dataset.admin === "true";
     const isSuperAdmin = document.body.dataset.adminRole === "super";
     const adminTeacher = document.body.dataset.adminTeacher?.trim().toUpperCase();
-    let editorReady = true;
+    let editorReady = false;
     if (!tableBody) {
         return;
     }
@@ -136,6 +136,7 @@
 
     let schedule = cloneDefault();
     let announcement = defaultAnnouncement;
+    let addingSlot = null;
     let storageError = "";
     let firebaseReady = false;
     let hasLocalScheduleChanges = false;
@@ -395,10 +396,71 @@
                 }
 
                 if (slot.length === 0 && isAdmin) {
-                    const placeholder = document.createElement("span");
-                    placeholder.className = "empty-slot-hint";
-                    placeholder.textContent = "Drop class here";
-                    cell.append(placeholder);
+                    if (!editorReady) {
+                        const placeholder = document.createElement("span");
+                        placeholder.className = "empty-slot-hint";
+                        placeholder.textContent = "Loading schedule...";
+                        cell.append(placeholder);
+                    } else if (addingSlot?.row === rowIndex && addingSlot?.day === dayIndex) {
+                        const form = document.createElement("form");
+                        form.className = "add-lecture-form";
+
+                        const courseInput = document.createElement("input");
+                        courseInput.type = "text";
+                        courseInput.name = "course";
+                        courseInput.placeholder = "Lecture name";
+                        courseInput.setAttribute("aria-label", "Lecture name");
+                        courseInput.required = true;
+                        form.append(courseInput);
+
+                        if (isSuperAdmin) {
+                            const teacherInput = document.createElement("input");
+                            teacherInput.type = "text";
+                            teacherInput.name = "teacher";
+                            teacherInput.placeholder = "Teacher name";
+                            teacherInput.setAttribute("aria-label", "Teacher name");
+                            teacherInput.required = true;
+                            form.append(teacherInput);
+                        }
+
+                        const weeksInput = document.createElement("input");
+                        weeksInput.type = "text";
+                        weeksInput.name = "weeks";
+                        weeksInput.placeholder = "Weeks (e.g. Week 8-12)";
+                        weeksInput.setAttribute("aria-label", "Class weeks");
+                        form.append(weeksInput);
+
+                        const locationInput = document.createElement("input");
+                        locationInput.type = "text";
+                        locationInput.name = "location";
+                        locationInput.placeholder = "Room or location";
+                        locationInput.setAttribute("aria-label", "Room or location");
+                        form.append(locationInput);
+
+                        const actions = document.createElement("div");
+                        actions.className = "add-lecture-actions";
+                        const addButton = document.createElement("button");
+                        addButton.type = "submit";
+                        addButton.textContent = "Add";
+                        const cancelButton = document.createElement("button");
+                        cancelButton.type = "button";
+                        cancelButton.className = "cancel-add-lecture";
+                        cancelButton.textContent = "Cancel";
+                        actions.append(addButton, cancelButton);
+                        form.append(actions);
+                        cell.append(form);
+                    } else {
+                        const addButton = document.createElement("button");
+                        addButton.type = "button";
+                        addButton.className = "add-lecture";
+                        addButton.textContent = "+";
+                        addButton.setAttribute(
+                            "aria-label",
+                            `Add lecture on ${days[dayIndex]} at ${times[rowIndex]}`
+                        );
+                        addButton.title = "Add lecture";
+                        cell.append(addButton);
+                    }
                 }
 
                 slot.forEach((item, eventIndex) => {
@@ -548,6 +610,50 @@
         let touchDrag = null;
         let suppressClick = false;
 
+        tableBody.addEventListener("submit", (submitEvent) => {
+            const form = submitEvent.target.closest(".add-lecture-form");
+            if (!form) {
+                return;
+            }
+            submitEvent.preventDefault();
+            const row = addingSlot?.row;
+            const day = addingSlot?.day;
+            if (!Number.isInteger(row) || !Number.isInteger(day)) {
+                setStatus("Could not add lecture: the selected schedule slot is no longer available.");
+                addingSlot = null;
+                render();
+                return;
+            }
+
+            const formData = new FormData(form);
+            const course = String(formData.get("course") || "").trim();
+            const teacher = isSuperAdmin
+                ? String(formData.get("teacher") || "").trim()
+                : adminTeacher || "";
+            const weeks = String(formData.get("weeks") || "").trim();
+            const location = String(formData.get("location") || "").trim();
+            const slot = schedule[row][day];
+            if (!course || !teacher) {
+                setStatus("Enter a lecture name and teacher before adding the class.");
+                return;
+            }
+            if (slot.length !== 0) {
+                addingSlot = null;
+                render();
+                setStatus("Could not add lecture: that schedule slot is no longer empty.");
+                return;
+            }
+
+            slot.push(event(course, teacher, weeks, location));
+            addingSlot = null;
+            render();
+            if (save()) {
+                publishAnnouncement(
+                    `${teacher}: ${course} was added for ${days[day]} at ${times[row]}.`
+                );
+            }
+        });
+
         tableBody.addEventListener("focusin", (focusEvent) => {
             const field = focusEvent.target.closest("[data-field]");
             const card = field?.closest(".schedule-event");
@@ -620,6 +726,28 @@
                 suppressClick = false;
                 clickEvent.preventDefault();
                 clickEvent.stopPropagation();
+                return;
+            }
+
+            const addButton = clickEvent.target.closest(".add-lecture");
+            if (addButton) {
+                const cell = addButton.closest("td[data-row][data-day]");
+                const row = Number(cell.dataset.row);
+                const day = Number(cell.dataset.day);
+                if (schedule[row][day].length !== 0) {
+                    setStatus("Classes can only be added to an empty schedule slot.");
+                    return;
+                }
+                selectedSource = null;
+                addingSlot = { row, day };
+                render();
+                tableBody.querySelector(".add-lecture-form input")?.focus();
+                return;
+            }
+
+            if (clickEvent.target.closest(".cancel-add-lecture")) {
+                addingSlot = null;
+                render();
                 return;
             }
 

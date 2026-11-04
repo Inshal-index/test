@@ -436,6 +436,59 @@ thead th:last-child {
     font-size: 0.8rem;
 }
 
+.add-lecture {
+    display: inline-grid;
+    width: 1.8rem;
+    height: 1.8rem;
+    place-items: center;
+    border: 1px dashed #8caab2;
+    border-radius: 50%;
+    background: #f7fbfc;
+    color: #385868;
+    font: inherit;
+    font-size: 1.2rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.add-lecture:hover,
+.add-lecture:focus-visible {
+    border-style: solid;
+    background: #e2f4f7;
+}
+
+.add-lecture-form {
+    display: grid;
+    gap: 0.35rem;
+    min-width: 8rem;
+}
+
+.add-lecture-form input {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    padding: 0.35rem;
+    border: 1px solid #c8dfe3;
+    border-radius: 0.3rem;
+    font: inherit;
+    font-size: 0.8rem;
+}
+
+.add-lecture-actions {
+    display: flex;
+    gap: 0.35rem;
+}
+
+.add-lecture-actions button {
+    padding: 0.25rem 0.45rem;
+    border: 1px solid #c8dfe3;
+    border-radius: 0.3rem;
+    background: white;
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
 @media (max-width: 480px) {
     .site-header {
         padding: 0.75rem 1rem;
