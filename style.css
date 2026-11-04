@@ -533,6 +533,18 @@ thead th:last-child {
     td {
         padding: 0.5rem;
     }
+
+    .schedule-table tr > :first-child {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        background: #f4fbfc;
+    }
+
+    .schedule-table thead tr > :first-child {
+        z-index: 2;
+        background: #e2f4f7;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
