@@ -127,6 +127,22 @@ body {
     font-size: 1.35rem;
 }
 
+#week-number-editor {
+    width: 3.5rem;
+    padding: 0.1rem 0.2rem;
+    border: 1px solid #c8dfe3;
+    border-radius: 0.3rem;
+    color: inherit;
+    font: inherit;
+    font-weight: inherit;
+    text-align: center;
+}
+
+#week-number-editor:disabled {
+    background: transparent;
+    border-color: transparent;
+}
+
 .schedule-status {
     color: #24566b;
     font-size: 0.9rem;
@@ -463,13 +479,13 @@ thead th:last-child {
     min-width: 8rem;
 }
 
-.add-lecture-form input {
-    box-sizing: border-box;
+.add-lecture-form select {
     width: 100%;
     min-width: 0;
     padding: 0.35rem;
     border: 1px solid #c8dfe3;
     border-radius: 0.3rem;
+    background: white;
     font: inherit;
     font-size: 0.8rem;
 }

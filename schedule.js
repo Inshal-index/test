@@ -1,5 +1,7 @@
 (async () => {
     const scheduleStorageKey = "class2-schedule";
+    const weekNumberStorageKey = "class2-schedule-week-number";
+    const weekNumberPendingKey = "class2-schedule-week-number-pending";
     const announcementStorageKey = "class2-schedule-announcement";
     const defaultAnnouncement = "Schedule updates: Schedule changes and news will be posted here.";
     const times = [
@@ -61,6 +63,7 @@
 
     const tableBody = document.querySelector(".schedule-table tbody");
     const status = document.getElementById("schedule-status");
+    const weekNumberInput = document.getElementById("week-number-editor");
     const isAdmin = document.body.dataset.admin === "true";
     const isSuperAdmin = document.body.dataset.adminRole === "super";
     const adminTeacher = document.body.dataset.adminTeacher?.trim().toUpperCase();
@@ -88,6 +91,16 @@
             )
         );
     const serializeSchedule = (value) => JSON.stringify(value);
+    const isValidWeekNumber = (value) =>
+        Number.isInteger(value) && value >= 1 && value <= 53;
+    const updateWeekNumberDisplay = () => {
+        document.querySelectorAll("[data-week-number]").forEach((element) => {
+            element.textContent = String(weekNumber);
+        });
+        if (weekNumberInput && document.activeElement !== weekNumberInput) {
+            weekNumberInput.value = String(weekNumber);
+        }
+    };
     const parseFirestoreSchedule = (value) => {
         const parsedSchedule = typeof value === "string" ? JSON.parse(value) : value;
         if (!isValidSchedule(parsedSchedule)) {
@@ -104,6 +117,28 @@
         isAdmin &&
         editorReady &&
         (isSuperAdmin || item.teacher.trim().toUpperCase() === adminTeacher);
+    const getLectureTemplates = () => {
+        const templates = [];
+        const seen = new Set();
+        [schedule, defaultSchedule].forEach((sourceSchedule) => {
+            sourceSchedule.forEach((row) => {
+                row.forEach((slot) => {
+                    slot.forEach((item) => {
+                        if (!isSuperAdmin &&
+                            item.teacher.trim().toUpperCase() !== adminTeacher) {
+                            return;
+                        }
+                        const key = JSON.stringify([item.course, item.teacher]);
+                        if (!seen.has(key)) {
+                            seen.add(key);
+                            templates.push(item);
+                        }
+                    });
+                });
+            });
+        });
+        return templates;
+    };
 
     const renderAnnouncement = (message) => {
         document.querySelectorAll(".event-bar").forEach((bar) => {
@@ -137,10 +172,24 @@
     let schedule = cloneDefault();
     let announcement = defaultAnnouncement;
     let addingSlot = null;
+    let nativeDragSource = null;
+    let weekNumber = 9;
     let storageError = "";
     let firebaseReady = false;
     let hasLocalScheduleChanges = false;
+    let hasLocalWeekChanges = false;
     let hasLocalAnnouncementChanges = false;
+    try {
+        const savedWeekNumber = Number(localStorage.getItem(weekNumberStorageKey));
+        if (isValidWeekNumber(savedWeekNumber)) {
+            weekNumber = savedWeekNumber;
+        }
+        hasLocalWeekChanges = isValidWeekNumber(savedWeekNumber) &&
+            localStorage.getItem(weekNumberPendingKey) === "true";
+    } catch (error) {
+        storageError = `Could not read the saved week number: ${error.message}`;
+    }
+    updateWeekNumberDisplay();
     render();
     renderAnnouncement(announcement);
     window.addEventListener("resize", () => renderAnnouncement(announcement));
@@ -173,12 +222,29 @@
             })
         ]);
         if (scheduleSnapshot.exists()) {
-            const savedSchedule = parseFirestoreSchedule(scheduleSnapshot.data().schedule);
-            if (hasLocalScheduleChanges) {
-                await firebase.setDoc(scheduleRef, { schedule: serializeSchedule(schedule) });
+            const savedData = scheduleSnapshot.data();
+            const savedSchedule = parseFirestoreSchedule(savedData.schedule);
+            const savedWeekNumber = savedData.weekNumber === undefined ? 9 : savedData.weekNumber;
+            if (!isValidWeekNumber(savedWeekNumber)) {
+                throw new Error("The Firebase schedule document has an invalid week number.");
+            }
+            if (hasLocalScheduleChanges || hasLocalWeekChanges) {
+                if (!hasLocalScheduleChanges) {
+                    schedule = savedSchedule;
+                }
+                if (!hasLocalWeekChanges) {
+                    weekNumber = savedWeekNumber;
+                }
+                await firebase.setDoc(scheduleRef, {
+                    schedule: serializeSchedule(schedule),
+                    weekNumber
+                });
                 hasLocalScheduleChanges = false;
+                hasLocalWeekChanges = false;
+                localStorage.removeItem(weekNumberPendingKey);
             } else {
                 schedule = savedSchedule;
+                weekNumber = savedWeekNumber;
             }
         } else {
             const savedSchedule = localStorage.getItem(scheduleStorageKey);
@@ -189,9 +255,17 @@
                 }
                 schedule = parsedSchedule;
             }
+            if (isAdmin && hasLocalWeekChanges) {
+                weekNumber = Number(localStorage.getItem(weekNumberStorageKey));
+            }
             if (isAdmin) {
-                await firebase.setDoc(scheduleRef, { schedule: serializeSchedule(schedule) });
+                await firebase.setDoc(scheduleRef, {
+                    schedule: serializeSchedule(schedule),
+                    weekNumber
+                });
                 hasLocalScheduleChanges = false;
+                hasLocalWeekChanges = false;
+                localStorage.removeItem(weekNumberPendingKey);
             }
         }
         if (announcementSnapshot.exists()) {
@@ -224,6 +298,10 @@
         editorReady = true;
     } finally {
         window.clearTimeout(startupTimeout);
+    }
+    updateWeekNumberDisplay();
+    if (weekNumberInput) {
+        weekNumberInput.disabled = !isAdmin || !editorReady;
     }
     let selectedSource = null;
     let saveTimer;
@@ -259,7 +337,10 @@
         }
         if (!snapshot.exists()) {
             if (isAdmin) {
-                firebase.setDoc(scheduleRef, { schedule: serializeSchedule(schedule) }).catch((error) => {
+                firebase.setDoc(scheduleRef, {
+                    schedule: serializeSchedule(schedule),
+                    weekNumber
+                }).catch((error) => {
                     setStatus(`Could not initialize the shared schedule: ${error.message}`);
                 });
             }
@@ -268,21 +349,33 @@
             }
             return;
         }
-        if (saveTimer) {
+        if (saveTimer || hasLocalScheduleChanges || hasLocalWeekChanges) {
             return;
         }
         let updatedSchedule;
+        let updatedWeekNumber;
         try {
             updatedSchedule = parseFirestoreSchedule(snapshot.data().schedule);
+            updatedWeekNumber = snapshot.data().weekNumber === undefined
+                ? 9
+                : snapshot.data().weekNumber;
+            if (!isValidWeekNumber(updatedWeekNumber)) {
+                throw new Error("The schedule document has an invalid week number.");
+            }
         } catch (error) {
             setStatus(`Could not load schedule update: ${error.message}`);
             return;
         }
-        if (JSON.stringify(updatedSchedule) !== JSON.stringify(schedule)) {
+        if (JSON.stringify(updatedSchedule) !== JSON.stringify(schedule) ||
+            updatedWeekNumber !== weekNumber) {
             schedule = updatedSchedule;
+            weekNumber = updatedWeekNumber;
+            updateWeekNumberDisplay();
             render();
             try {
                 localStorage.setItem(scheduleStorageKey, JSON.stringify(schedule));
+                localStorage.setItem(weekNumberStorageKey, String(weekNumber));
+                localStorage.removeItem(weekNumberPendingKey);
             } catch (error) {
                 setStatus(`Schedule updated, but this browser could not cache it: ${error.message}`);
                 return;
@@ -405,37 +498,23 @@
                         const form = document.createElement("form");
                         form.className = "add-lecture-form";
 
-                        const courseInput = document.createElement("input");
-                        courseInput.type = "text";
-                        courseInput.name = "course";
-                        courseInput.placeholder = "Lecture name";
-                        courseInput.setAttribute("aria-label", "Lecture name");
-                        courseInput.required = true;
-                        form.append(courseInput);
-
-                        if (isSuperAdmin) {
-                            const teacherInput = document.createElement("input");
-                            teacherInput.type = "text";
-                            teacherInput.name = "teacher";
-                            teacherInput.placeholder = "Teacher name";
-                            teacherInput.setAttribute("aria-label", "Teacher name");
-                            teacherInput.required = true;
-                            form.append(teacherInput);
-                        }
-
-                        const weeksInput = document.createElement("input");
-                        weeksInput.type = "text";
-                        weeksInput.name = "weeks";
-                        weeksInput.placeholder = "Weeks (e.g. Week 8-12)";
-                        weeksInput.setAttribute("aria-label", "Class weeks");
-                        form.append(weeksInput);
-
-                        const locationInput = document.createElement("input");
-                        locationInput.type = "text";
-                        locationInput.name = "location";
-                        locationInput.placeholder = "Room or location";
-                        locationInput.setAttribute("aria-label", "Room or location");
-                        form.append(locationInput);
+                        const lectureSelect = document.createElement("select");
+                        lectureSelect.name = "lecture";
+                        lectureSelect.setAttribute("aria-label", "Choose a lecture");
+                        lectureSelect.required = true;
+                        const chooseLecture = document.createElement("option");
+                        chooseLecture.value = "";
+                        chooseLecture.textContent = "Choose a lecture";
+                        lectureSelect.append(chooseLecture);
+                        getLectureTemplates().forEach((template, index) => {
+                            const option = document.createElement("option");
+                            option.value = String(index);
+                            option.textContent = isSuperAdmin
+                                ? `${template.course} — ${template.teacher}`
+                                : template.course;
+                            lectureSelect.append(option);
+                        });
+                        form.append(lectureSelect);
 
                         const actions = document.createElement("div");
                         actions.className = "add-lecture-actions";
@@ -522,7 +601,11 @@
             if (!firebaseReady) {
                 try {
                     localStorage.setItem(scheduleStorageKey, JSON.stringify(schedule));
+                    localStorage.setItem(weekNumberStorageKey, String(weekNumber));
                     hasLocalScheduleChanges = true;
+                    if (hasLocalWeekChanges) {
+                        localStorage.setItem(weekNumberPendingKey, "true");
+                    }
                 } catch (error) {
                     setStatus(`Could not save changes in this browser: ${error.message}`);
                     return;
@@ -531,12 +614,23 @@
                 return;
             }
             const savedSchedule = JSON.stringify(schedule);
-            firebase.setDoc(scheduleRef, { schedule: serializeSchedule(schedule) }).then(() => {
-                if (JSON.stringify(schedule) === savedSchedule) {
+            const savedWeekNumber = weekNumber;
+            firebase.setDoc(scheduleRef, {
+                schedule: serializeSchedule(schedule),
+                weekNumber
+            }).then(() => {
+                const isCurrentSave = JSON.stringify(schedule) === savedSchedule &&
+                    weekNumber === savedWeekNumber;
+                if (isCurrentSave) {
                     hasLocalScheduleChanges = false;
+                    hasLocalWeekChanges = false;
                 }
                 try {
                     localStorage.setItem(scheduleStorageKey, JSON.stringify(schedule));
+                    localStorage.setItem(weekNumberStorageKey, String(weekNumber));
+                    if (isCurrentSave) {
+                        localStorage.removeItem(weekNumberPendingKey);
+                    }
                 } catch (error) {
                     setStatus(`Schedule saved to Firebase, but could not be cached in this browser: ${error.message}`);
                     return;
@@ -588,6 +682,11 @@
             render();
             return;
         }
+        if (targetSlot.length > 0) {
+            clearSelection();
+            setStatus("That time slot already has a lecture. Move this class to an empty slot.");
+            return;
+        }
         const [movedEvent] = sourceSlot.splice(source.eventIndex, 1);
         targetSlot.push(movedEvent);
         selectedSource = null;
@@ -610,6 +709,33 @@
         let touchDrag = null;
         let suppressClick = false;
 
+        weekNumberInput?.addEventListener("input", () => {
+            const nextWeekNumber = Number(weekNumberInput.value);
+            if (!isValidWeekNumber(nextWeekNumber)) {
+                return;
+            }
+            weekNumber = nextWeekNumber;
+            hasLocalWeekChanges = true;
+            try {
+                localStorage.setItem(weekNumberStorageKey, String(weekNumber));
+                localStorage.setItem(weekNumberPendingKey, "true");
+            } catch (error) {
+                setStatus(`Week number changed but could not be cached in this browser: ${error.message}`);
+            }
+            updateWeekNumberDisplay();
+            save(true);
+        });
+
+        weekNumberInput?.addEventListener("change", () => {
+            const nextWeekNumber = Number(weekNumberInput.value);
+            if (!isValidWeekNumber(nextWeekNumber)) {
+                weekNumberInput.value = String(weekNumber);
+                setStatus("Week number must be between 1 and 53.");
+            } else {
+                save();
+            }
+        });
+
         tableBody.addEventListener("submit", (submitEvent) => {
             const form = submitEvent.target.closest(".add-lecture-form");
             if (!form) {
@@ -626,15 +752,15 @@
             }
 
             const formData = new FormData(form);
-            const course = String(formData.get("course") || "").trim();
-            const teacher = isSuperAdmin
-                ? String(formData.get("teacher") || "").trim()
-                : adminTeacher || "";
-            const weeks = String(formData.get("weeks") || "").trim();
-            const location = String(formData.get("location") || "").trim();
+            const selectedTemplate = String(formData.get("lecture") || "");
+            const templateIndex = selectedTemplate === "" ? -1 : Number(selectedTemplate);
+            const templates = getLectureTemplates();
+            const template = Number.isInteger(templateIndex)
+                ? templates[templateIndex]
+                : null;
             const slot = schedule[row][day];
-            if (!course || !teacher) {
-                setStatus("Enter a lecture name and teacher before adding the class.");
+            if (!template) {
+                setStatus("Choose a lecture before adding it to the schedule.");
                 return;
             }
             if (slot.length !== 0) {
@@ -644,12 +770,18 @@
                 return;
             }
 
-            slot.push(event(course, teacher, weeks, location));
+            const lecture = event(
+                template.course,
+                isSuperAdmin ? template.teacher : adminTeacher,
+                template.weeks,
+                template.location
+            );
+            slot.push(lecture);
             addingSlot = null;
             render();
             if (save()) {
                 publishAnnouncement(
-                    `${teacher}: ${course} was added for ${days[day]} at ${times[row]}.`
+                    `${lecture.teacher}: ${lecture.course} was added for ${days[day]} at ${times[row]}.`
                 );
             }
         });
@@ -741,7 +873,7 @@
                 selectedSource = null;
                 addingSlot = { row, day };
                 render();
-                tableBody.querySelector(".add-lecture-form input")?.focus();
+                tableBody.querySelector(".add-lecture-form select")?.focus();
                 return;
             }
 
@@ -790,7 +922,7 @@
                     selected.classList.remove("is-selected");
                 });
                 card.classList.add("is-selected");
-                setStatus("Class selected. Choose a destination cell, or drag it to a new slot.");
+                setStatus("Class selected. Choose an empty destination slot, or drag it to one.");
                 return;
             }
             if (!selectedSource) {
@@ -850,7 +982,12 @@
             pointerEvent.preventDefault();
             const target = document.elementFromPoint(pointerEvent.clientX, pointerEvent.clientY)
                 ?.closest("td[data-row][data-day]");
-            if (target && tableBody.contains(target)) {
+            const targetIsEmpty = target &&
+                schedule[Number(target.dataset.row)][Number(target.dataset.day)].length === 0;
+            const targetIsSource = target &&
+                Number(target.dataset.row) === touchDrag.source.row &&
+                Number(target.dataset.day) === touchDrag.source.day;
+            if (target && tableBody.contains(target) && (targetIsEmpty || targetIsSource)) {
                 if (touchDrag.target !== target) {
                     touchDrag.target?.classList.remove("drop-target");
                     target.classList.add("drop-target");
@@ -914,6 +1051,7 @@
                 day: Number(cell.dataset.day),
                 eventIndex: Number(card.dataset.eventIndex)
             };
+            nativeDragSource = source;
             dragEvent.dataTransfer.setData("text/plain", JSON.stringify(source));
             dragEvent.dataTransfer.effectAllowed = "move";
         });
@@ -921,6 +1059,19 @@
         tableBody.addEventListener("dragover", (dragEvent) => {
             const cell = dragEvent.target.closest("td[data-row][data-day]");
             if (cell) {
+                if (!nativeDragSource) {
+                    cell.classList.remove("drop-target");
+                    dragEvent.dataTransfer.dropEffect = "none";
+                    return;
+                }
+                const isSameCell = Number(cell.dataset.row) === nativeDragSource.row &&
+                    Number(cell.dataset.day) === nativeDragSource.day;
+                const isEmpty = schedule[Number(cell.dataset.row)][Number(cell.dataset.day)].length === 0;
+                if (!isEmpty && !isSameCell) {
+                    cell.classList.remove("drop-target");
+                    dragEvent.dataTransfer.dropEffect = "none";
+                    return;
+                }
                 dragEvent.preventDefault();
                 dragEvent.dataTransfer.dropEffect = "move";
                 cell.classList.add("drop-target");
@@ -958,6 +1109,7 @@
         });
 
         tableBody.addEventListener("dragend", () => {
+            nativeDragSource = null;
             tableBody.querySelectorAll(".drop-target").forEach((cell) => {
                 cell.classList.remove("drop-target");
             });
