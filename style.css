@@ -161,10 +161,10 @@ body {
 .schedule-table td.is-current-lecture {
     position: relative;
     z-index: 1;
-    background: #39ff14;
-    box-shadow: 0 0 12px 3px rgb(57 255 20 / 48%),
-        0 0 26px 8px rgb(57 255 20 / 24%),
-        inset 0 0 18px 4px rgb(57 255 20 / 26%);
+    background: rgb(57 255 20 / 12%);
+    box-shadow: 0 0 14px 4px rgb(57 255 20 / 62%),
+        0 0 30px 9px rgb(57 255 20 / 32%),
+        inset 0 0 20px 5px rgb(57 255 20 / 38%);
 }
 
 .schedule-table td.is-current-lecture .teacher-name--boy,

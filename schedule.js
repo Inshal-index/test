@@ -308,6 +308,7 @@
     window.setInterval(updateChinaClockAndHighlight, 1000);
     window.setInterval(syncChinaTime, 5 * 60 * 1000);
     window.addEventListener("resize", () => renderAnnouncement(announcement));
+    setStatus("Loading shared schedule from Supabase...");
     let selectedSource = null;
     let saveTimer;
     let scheduleSaveInFlight = false;
@@ -422,6 +423,7 @@
         });
         syncReady = true;
         if (scheduleSync.initialState) {
+            setStatus("Connected to Supabase. Shared schedule is live.");
             applySharedState(scheduleSync.initialState, "Connected to Supabase. Shared schedule is live.");
         } else {
             editorReady = isSuperAdmin;

@@ -1,42 +1,76 @@
 import { supabase } from "./supabase.js";
 
 export const connectScheduleSync = async ({ onState, onConnectionStatus }) => {
+    const readCurrentState = async () => {
+        const { data, error } = await supabase
+            .from("schedule_state")
+            .select("schedule, week_number, announcement, updated_at")
+            .eq("singleton", true)
+            .maybeSingle();
+        if (error) {
+            throw error;
+        }
+        return data;
+    };
+    let initialReadComplete = false;
+    let realtimeStateDuringInitialRead = null;
+    let latestState = null;
+    const isNewerState = (candidate, current) => {
+        if (!candidate) {
+            return false;
+        }
+        if (!current) {
+            return true;
+        }
+        const candidateTime = Date.parse(candidate.updated_at);
+        const currentTime = Date.parse(current.updated_at);
+        return candidateTime > currentTime ||
+            (candidateTime === currentTime && JSON.stringify(candidate) !== JSON.stringify(current));
+    };
+
     const channel = supabase
         .channel("schedule-state-sync")
         .on(
             "postgres_changes",
             { event: "*", schema: "public", table: "schedule_state" },
-            (payload) => onState(payload.eventType === "DELETE" ? null : payload.new)
+            (payload) => {
+                const nextState = payload.eventType === "DELETE" ? null : payload.new;
+                if (!initialReadComplete) {
+                    realtimeStateDuringInitialRead = nextState;
+                } else if (isNewerState(nextState, latestState)) {
+                    latestState = nextState;
+                    onState(nextState);
+                }
+            }
         );
 
-    let subscriptionTimeout;
-    await Promise.race([
-        new Promise((resolve) => {
-            channel.subscribe((status, error) => {
-                onConnectionStatus?.(status, error);
-                if (["SUBSCRIBED", "CHANNEL_ERROR", "TIMED_OUT", "CLOSED"].includes(status)) {
-                    resolve(status);
+    channel.subscribe((status, error) => {
+        onConnectionStatus?.(status, error);
+        if (status === "SUBSCRIBED" && initialReadComplete) {
+            void readCurrentState().then((state) => {
+                if (isNewerState(state, latestState)) {
+                    latestState = state;
+                    onState(state);
                 }
-            });
-        }),
-        new Promise((resolve) => {
-            subscriptionTimeout = window.setTimeout(() => resolve("TIMED_OUT"), 8000);
-        })
-    ]);
-    window.clearTimeout(subscriptionTimeout);
+            }).catch((readError) => onConnectionStatus?.("CHANNEL_ERROR", readError));
+        }
+    });
 
-    const { data, error } = await supabase
-        .from("schedule_state")
-        .select("schedule, week_number, announcement, updated_at")
-        .eq("singleton", true)
-        .maybeSingle();
-    if (error) {
+    let initialState;
+    try {
+        initialState = await readCurrentState();
+    } catch (error) {
         await supabase.removeChannel(channel);
         throw error;
     }
+    if (isNewerState(realtimeStateDuringInitialRead, initialState)) {
+        initialState = realtimeStateDuringInitialRead;
+    }
+    latestState = initialState;
+    initialReadComplete = true;
 
     return {
-        initialState: data,
+        initialState,
         async saveSchedule(schedule, weekNumber) {
             const { data: savedState, error: saveError } = await supabase.rpc("save_schedule", {
                 p_schedule: schedule,
@@ -57,15 +91,7 @@ export const connectScheduleSync = async ({ onState, onConnectionStatus }) => {
             return Array.isArray(savedState) ? savedState[0] : savedState;
         },
         async getCurrentState() {
-            const { data: currentState, error: readError } = await supabase
-                .from("schedule_state")
-                .select("schedule, week_number, announcement, updated_at")
-                .eq("singleton", true)
-                .maybeSingle();
-            if (readError) {
-                throw readError;
-            }
-            return currentState;
+            return readCurrentState();
         },
         async disconnect() {
             await supabase.removeChannel(channel);
