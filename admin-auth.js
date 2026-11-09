@@ -39,7 +39,6 @@ const showAdmin = (profile) => {
         ? `${profile.teacher} — edit own classes only`
         : "Super admin — edit every class";
     document.getElementById("reset-schedule").hidden = profile.role !== "super";
-    document.getElementById("import-firebase-data").hidden = profile.role !== "super";
 
     if (editorLoaded) {
         return;

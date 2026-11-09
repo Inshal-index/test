@@ -401,66 +401,6 @@
         }
     };
 
-    document.getElementById("import-firebase-data")?.addEventListener("click", async (clickEvent) => {
-        if (!isSuperAdmin || !scheduleSync) {
-            setStatus("Only a connected super admin can import Firebase data.");
-            return;
-        }
-        if (!window.confirm("Import the current Firebase schedule and announcement into Supabase? This replaces the shared Supabase schedule.")) {
-            return;
-        }
-
-        const importButton = clickEvent.currentTarget;
-        importButton.disabled = true;
-        setStatus("Reading the current Firebase schedule...");
-        try {
-            const firebase = await import("./firebase.js");
-            const [scheduleSnapshot, announcementSnapshot] = await Promise.all([
-                firebase.getDoc(firebase.doc(firebase.db, "schedules", "current")),
-                firebase.getDoc(firebase.doc(firebase.db, "announcements", "current"))
-            ]);
-            if (!scheduleSnapshot.exists()) {
-                throw new Error("Firebase does not contain schedules/current.");
-            }
-
-            const scheduleData = scheduleSnapshot.data();
-            const importedSchedule = parseScheduleData(scheduleData.schedule);
-            const importedWeekNumber = scheduleData.weekNumber === undefined
-                ? 9
-                : scheduleData.weekNumber;
-            if (!isValidWeekNumber(importedWeekNumber)) {
-                throw new Error("The Firebase schedule has an invalid week number.");
-            }
-            const announcementData = announcementSnapshot.exists()
-                ? announcementSnapshot.data().message
-                : defaultAnnouncement;
-            if (typeof announcementData !== "string") {
-                throw new Error("The Firebase announcement has an invalid format.");
-            }
-
-            setStatus("Importing the schedule into Supabase...");
-            await scheduleSync.saveSchedule(importedSchedule, importedWeekNumber);
-            await scheduleSync.publishAnnouncement(announcementData);
-            schedule = importedSchedule;
-            weekNumber = importedWeekNumber;
-            announcement = announcementData;
-            editorReady = true;
-            if (weekNumberInput) {
-                weekNumberInput.disabled = false;
-            }
-            document.getElementById("reset-schedule").disabled = false;
-            updateWeekNumberDisplay();
-            render();
-            renderAnnouncement(announcement);
-            cacheCurrentState();
-            setStatus("Firebase schedule and announcement imported into Supabase.");
-        } catch (error) {
-            setStatus(`Could not import Firebase data: ${error.message}`);
-        } finally {
-            importButton.disabled = false;
-        }
-    });
-
     try {
         const { connectScheduleSync } = await import("./schedule-sync.js");
         scheduleSync = await connectScheduleSync({
@@ -484,15 +424,15 @@
         if (scheduleSync.initialState) {
             applySharedState(scheduleSync.initialState, "Connected to Supabase. Shared schedule is live.");
         } else {
-            editorReady = !isAdmin;
+            editorReady = isSuperAdmin;
             if (weekNumberInput) {
-                weekNumberInput.disabled = true;
+                weekNumberInput.disabled = !isSuperAdmin;
             }
             const resetButton = document.getElementById("reset-schedule");
             if (resetButton) {
-                resetButton.disabled = true;
+                resetButton.disabled = !isSuperAdmin;
             }
-            setStatus("No shared schedule exists yet. Import the current Firebase data as super admin.");
+            setStatus("No shared schedule exists yet. A super admin can initialize it from the default timetable.");
         }
     } catch (error) {
         editorReady = !isAdmin;
