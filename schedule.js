@@ -1,7 +1,6 @@
 (async () => {
     const scheduleStorageKey = "class2-schedule";
     const weekNumberStorageKey = "class2-schedule-week-number";
-    const weekNumberPendingKey = "class2-schedule-week-number-pending";
     const announcementStorageKey = "class2-schedule-announcement";
     const defaultAnnouncement = "Schedule updates: Schedule changes and news will be posted here.";
     const times = [
@@ -91,7 +90,6 @@
                 )
             )
         );
-    const serializeSchedule = (value) => JSON.stringify(value);
     const isValidWeekNumber = (value) =>
         Number.isInteger(value) && value >= 1 && value <= 53;
     let networkChinaTime = null;
@@ -208,7 +206,7 @@
             weekNumberInput.value = String(weekNumber);
         }
     };
-    const parseFirestoreSchedule = (value) => {
+    const parseScheduleData = (value) => {
         const parsedSchedule = typeof value === "string" ? JSON.parse(value) : value;
         if (!isValidSchedule(parsedSchedule)) {
             throw new Error("The saved schedule has an invalid format.");
@@ -282,19 +280,25 @@
     let nativeDragSource = null;
     let weekNumber = 9;
     let storageError = "";
-    let firebaseReady = false;
-    let hasLocalScheduleChanges = false;
-    let hasLocalWeekChanges = false;
-    let hasLocalAnnouncementChanges = false;
+    let scheduleSync = null;
+    let syncReady = false;
+    let hasPendingScheduleChanges = false;
+    let pendingRemoteState = null;
     try {
+        const savedSchedule = localStorage.getItem(scheduleStorageKey);
+        if (savedSchedule !== null) {
+            schedule = parseScheduleData(savedSchedule);
+        }
         const savedWeekNumber = Number(localStorage.getItem(weekNumberStorageKey));
         if (isValidWeekNumber(savedWeekNumber)) {
             weekNumber = savedWeekNumber;
         }
-        hasLocalWeekChanges = isValidWeekNumber(savedWeekNumber) &&
-            localStorage.getItem(weekNumberPendingKey) === "true";
+        const savedAnnouncement = localStorage.getItem(announcementStorageKey);
+        if (savedAnnouncement !== null) {
+            announcement = savedAnnouncement;
+        }
     } catch (error) {
-        storageError = `Could not read the saved week number: ${error.message}`;
+        storageError = `Could not read saved schedule data: ${error.message}`;
     }
     updateWeekNumberDisplay();
     render();
@@ -304,129 +308,57 @@
     window.setInterval(updateChinaClockAndHighlight, 1000);
     window.setInterval(syncChinaTime, 5 * 60 * 1000);
     window.addEventListener("resize", () => renderAnnouncement(announcement));
-    setStatus("Opening the schedule in local-only mode...");
-
-    const firebase = null;
-    const scheduleRef = firebase?.doc(firebase.db, "schedules", "current");
-    const announcementRef = firebase?.doc(firebase.db, "announcements", "current");
-    setStatus("Connecting to the shared schedule...");
-    let startupTimeout;
-    try {
-        if (!firebase || !scheduleRef || !announcementRef) {
-            throw new Error(storageError || "Firebase is not available.");
-        }
-        const [scheduleSnapshot, announcementSnapshot] = await Promise.race([
-            Promise.all([
-                firebase.getDoc(scheduleRef),
-                firebase.getDoc(announcementRef)
-            ]),
-            new Promise((_, reject) => {
-                startupTimeout = window.setTimeout(
-                    () => reject(new Error("Firebase connection timed out")),
-                    10000
-                );
-            })
-        ]);
-        if (scheduleSnapshot.exists()) {
-            const savedData = scheduleSnapshot.data();
-            const savedSchedule = parseFirestoreSchedule(savedData.schedule);
-            const savedWeekNumber = savedData.weekNumber === undefined ? 9 : savedData.weekNumber;
-            if (!isValidWeekNumber(savedWeekNumber)) {
-                throw new Error("The Firebase schedule document has an invalid week number.");
-            }
-            if (hasLocalScheduleChanges || hasLocalWeekChanges) {
-                if (!hasLocalScheduleChanges) {
-                    schedule = savedSchedule;
-                }
-                if (!hasLocalWeekChanges) {
-                    weekNumber = savedWeekNumber;
-                }
-                await firebase.setDoc(scheduleRef, {
-                    schedule: serializeSchedule(schedule),
-                    weekNumber
-                });
-                hasLocalScheduleChanges = false;
-                hasLocalWeekChanges = false;
-                localStorage.removeItem(weekNumberPendingKey);
-            } else {
-                schedule = savedSchedule;
-                weekNumber = savedWeekNumber;
-            }
-        } else {
-            const savedSchedule = localStorage.getItem(scheduleStorageKey);
-            if (savedSchedule !== null && !hasLocalScheduleChanges) {
-                const parsedSchedule = JSON.parse(savedSchedule);
-                if (!isValidSchedule(parsedSchedule)) {
-                    throw new Error("The locally saved schedule has an invalid format.");
-                }
-                schedule = parsedSchedule;
-            }
-            if (isAdmin && hasLocalWeekChanges) {
-                weekNumber = Number(localStorage.getItem(weekNumberStorageKey));
-            }
-            if (isAdmin) {
-                await firebase.setDoc(scheduleRef, {
-                    schedule: serializeSchedule(schedule),
-                    weekNumber
-                });
-                hasLocalScheduleChanges = false;
-                hasLocalWeekChanges = false;
-                localStorage.removeItem(weekNumberPendingKey);
-            }
-        }
-        if (announcementSnapshot.exists()) {
-            const savedAnnouncement = announcementSnapshot.data().message;
-            if (typeof savedAnnouncement !== "string") {
-                throw new Error("The Firebase announcement document has an invalid format.");
-            }
-            if (hasLocalAnnouncementChanges) {
-                await firebase.setDoc(announcementRef, { message: announcement });
-                hasLocalAnnouncementChanges = false;
-            } else {
-                announcement = savedAnnouncement;
-            }
-        } else if (isAdmin) {
-            const savedAnnouncement = localStorage.getItem(announcementStorageKey);
-            if (savedAnnouncement !== null && !hasLocalAnnouncementChanges) {
-                announcement = savedAnnouncement;
-            }
-            await firebase.setDoc(announcementRef, { message: announcement });
-            hasLocalAnnouncementChanges = false;
-        } else {
-            if (!hasLocalAnnouncementChanges) {
-                announcement = localStorage.getItem(announcementStorageKey) ?? defaultAnnouncement;
-            }
-        }
-        firebaseReady = true;
-        editorReady = true;
-    } catch (error) {
-        storageError = "Firebase is disabled. Schedule changes are saved in this browser only.";
-        try {
-            const savedSchedule = localStorage.getItem(scheduleStorageKey);
-            if (savedSchedule !== null) {
-                const parsedSchedule = JSON.parse(savedSchedule);
-                if (!isValidSchedule(parsedSchedule)) {
-                    throw new Error("The saved schedule has an invalid format.");
-                }
-                schedule = parsedSchedule;
-            }
-            const savedAnnouncement = localStorage.getItem(announcementStorageKey);
-            if (savedAnnouncement !== null) {
-                announcement = savedAnnouncement;
-            }
-        } catch (localError) {
-            storageError = `Firebase is disabled, and the browser's saved data could not be loaded: ${localError.message}`;
-        }
-        editorReady = true;
-    } finally {
-        window.clearTimeout(startupTimeout);
-    }
-    updateWeekNumberDisplay();
-    if (weekNumberInput) {
-        weekNumberInput.disabled = !isAdmin || !editorReady;
-    }
     let selectedSource = null;
     let saveTimer;
+    let scheduleSaveInFlight = false;
+
+    const cacheCurrentState = () => {
+        try {
+            localStorage.setItem(scheduleStorageKey, JSON.stringify(schedule));
+            localStorage.setItem(weekNumberStorageKey, String(weekNumber));
+            localStorage.setItem(announcementStorageKey, announcement);
+        } catch (error) {
+            setStatus(`Shared data loaded, but this browser could not cache it: ${error.message}`);
+        }
+    };
+
+    const applySharedState = (sharedState, message = "Schedule updated from another device.") => {
+        if (!sharedState) {
+            return;
+        }
+        try {
+            const updatedSchedule = parseScheduleData(sharedState.schedule);
+            if (!isValidWeekNumber(sharedState.week_number) ||
+                typeof sharedState.announcement !== "string") {
+                throw new Error("The Supabase schedule row has invalid fields.");
+            }
+            const hasVisibleChanges = JSON.stringify(updatedSchedule) !== JSON.stringify(schedule) ||
+                sharedState.week_number !== weekNumber ||
+                sharedState.announcement !== announcement;
+            schedule = updatedSchedule;
+            weekNumber = sharedState.week_number;
+            announcement = sharedState.announcement;
+            syncReady = true;
+            editorReady = true;
+            updateWeekNumberDisplay();
+            if (weekNumberInput) {
+                weekNumberInput.disabled = !isAdmin;
+            }
+            const resetButton = document.getElementById("reset-schedule");
+            if (resetButton) {
+                resetButton.disabled = !isSuperAdmin;
+            }
+            cacheCurrentState();
+            if (hasVisibleChanges) {
+                render();
+                renderAnnouncement(announcement);
+                updateChinaClockAndHighlight();
+                setStatus(message);
+            }
+        } catch (error) {
+            setStatus(`Could not load the shared schedule: ${error.message}`);
+        }
+    };
 
     render();
     window.addEventListener("storage", (storageEvent) => {
@@ -449,126 +381,128 @@
         }
     });
 
-    firebase?.onSnapshot(scheduleRef, (snapshot) => {
-        const wasReady = firebaseReady;
-        firebaseReady = true;
-        editorReady = true;
-        if (!wasReady) {
-            setStatus("Connected to Firebase. Schedule changes sync across devices.");
-            render();
-        }
-        if (!snapshot.exists()) {
-            if (isAdmin) {
-                firebase.setDoc(scheduleRef, {
-                    schedule: serializeSchedule(schedule),
-                    weekNumber
-                }).catch((error) => {
-                    setStatus(`Could not initialize the shared schedule: ${error.message}`);
-                });
-            }
-            if (!isAdmin) {
-                setStatus("Shared schedule is not set up yet. Ask an admin to sign in.");
-            }
-            return;
-        }
-        if (saveTimer || hasLocalScheduleChanges || hasLocalWeekChanges) {
-            return;
-        }
-        let updatedSchedule;
-        let updatedWeekNumber;
-        try {
-            updatedSchedule = parseFirestoreSchedule(snapshot.data().schedule);
-            updatedWeekNumber = snapshot.data().weekNumber === undefined
-                ? 9
-                : snapshot.data().weekNumber;
-            if (!isValidWeekNumber(updatedWeekNumber)) {
-                throw new Error("The schedule document has an invalid week number.");
-            }
-        } catch (error) {
-            setStatus(`Could not load schedule update: ${error.message}`);
-            return;
-        }
-        if (JSON.stringify(updatedSchedule) !== JSON.stringify(schedule) ||
-            updatedWeekNumber !== weekNumber) {
-            schedule = updatedSchedule;
-            weekNumber = updatedWeekNumber;
-            updateWeekNumberDisplay();
-            render();
-            try {
-                localStorage.setItem(scheduleStorageKey, JSON.stringify(schedule));
-                localStorage.setItem(weekNumberStorageKey, String(weekNumber));
-                localStorage.removeItem(weekNumberPendingKey);
-            } catch (error) {
-                setStatus(`Schedule updated, but this browser could not cache it: ${error.message}`);
-                return;
-            }
-            setStatus(isAdmin ? "Schedule updated from another device." : "Schedule updated.");
-        }
-    }, (error) => {
-        editorReady = true;
-        render();
-        setStatus(`Could not listen for schedule updates: ${error.message}`);
-    });
-
-    firebase?.onSnapshot(announcementRef, (snapshot) => {
-        const wasReady = firebaseReady;
-        firebaseReady = true;
-        editorReady = true;
-        if (!wasReady) {
-            setStatus("Connected to Firebase. Schedule changes sync across devices.");
-            render();
-        }
-        if (!snapshot.exists()) {
-            if (isAdmin) {
-                firebase.setDoc(announcementRef, { message: announcement }).catch((error) => {
-                    setStatus(`Could not initialize the notification: ${error.message}`);
-                });
-            }
-            return;
-        }
-        const updatedAnnouncement = snapshot.data().message;
-        if (typeof updatedAnnouncement !== "string") {
-            setStatus("Could not load notification update: the Firebase announcement has an invalid format.");
-            return;
-        }
-        if (updatedAnnouncement !== announcement) {
-            announcement = updatedAnnouncement;
-            renderAnnouncement(announcement);
-            try {
-                localStorage.setItem(announcementStorageKey, announcement);
-            } catch (error) {
-                setStatus(`Notification updated, but this browser could not cache it: ${error.message}`);
-            }
-        }
-    }, (error) => {
-        editorReady = true;
-        render();
-        setStatus(`Could not listen for notification updates: ${error.message}`);
-    });
-
-    if (storageError) {
-        setStatus(storageError);
-    }
-
-    const publishAnnouncement = (message) => {
+    const publishAnnouncement = async (message) => {
         announcement = message;
         renderAnnouncement(message);
         try {
             localStorage.setItem(announcementStorageKey, message);
-            hasLocalAnnouncementChanges = true;
         } catch (error) {
             setStatus(`The notification is shown here, but could not be cached: ${error.message}`);
         }
-        if (!firebaseReady) {
-            setStatus("The announcement is saved in this browser only. Shared sync is disabled.");
+        if (!scheduleSync) {
+            setStatus("The announcement is saved in this browser only. Supabase is unavailable.");
             return;
         }
-        firebase?.setDoc(announcementRef, { message }).then(() => {
-            hasLocalAnnouncementChanges = false;
-        }).catch((error) => {
-            setStatus(`Schedule saved, but the notification could not be shared: ${error.message}`);
-        });
+        try {
+            const savedState = await scheduleSync.publishAnnouncement(message);
+            setStatus("Announcement synced to Supabase.");
+        } catch (error) {
+            setStatus(`Announcement is shown locally but could not sync: ${error.message}`);
+        }
     };
+
+    document.getElementById("import-firebase-data")?.addEventListener("click", async (clickEvent) => {
+        if (!isSuperAdmin || !scheduleSync) {
+            setStatus("Only a connected super admin can import Firebase data.");
+            return;
+        }
+        if (!window.confirm("Import the current Firebase schedule and announcement into Supabase? This replaces the shared Supabase schedule.")) {
+            return;
+        }
+
+        const importButton = clickEvent.currentTarget;
+        importButton.disabled = true;
+        setStatus("Reading the current Firebase schedule...");
+        try {
+            const firebase = await import("./firebase.js");
+            const [scheduleSnapshot, announcementSnapshot] = await Promise.all([
+                firebase.getDoc(firebase.doc(firebase.db, "schedules", "current")),
+                firebase.getDoc(firebase.doc(firebase.db, "announcements", "current"))
+            ]);
+            if (!scheduleSnapshot.exists()) {
+                throw new Error("Firebase does not contain schedules/current.");
+            }
+
+            const scheduleData = scheduleSnapshot.data();
+            const importedSchedule = parseScheduleData(scheduleData.schedule);
+            const importedWeekNumber = scheduleData.weekNumber === undefined
+                ? 9
+                : scheduleData.weekNumber;
+            if (!isValidWeekNumber(importedWeekNumber)) {
+                throw new Error("The Firebase schedule has an invalid week number.");
+            }
+            const announcementData = announcementSnapshot.exists()
+                ? announcementSnapshot.data().message
+                : defaultAnnouncement;
+            if (typeof announcementData !== "string") {
+                throw new Error("The Firebase announcement has an invalid format.");
+            }
+
+            setStatus("Importing the schedule into Supabase...");
+            await scheduleSync.saveSchedule(importedSchedule, importedWeekNumber);
+            await scheduleSync.publishAnnouncement(announcementData);
+            schedule = importedSchedule;
+            weekNumber = importedWeekNumber;
+            announcement = announcementData;
+            editorReady = true;
+            if (weekNumberInput) {
+                weekNumberInput.disabled = false;
+            }
+            document.getElementById("reset-schedule").disabled = false;
+            updateWeekNumberDisplay();
+            render();
+            renderAnnouncement(announcement);
+            cacheCurrentState();
+            setStatus("Firebase schedule and announcement imported into Supabase.");
+        } catch (error) {
+            setStatus(`Could not import Firebase data: ${error.message}`);
+        } finally {
+            importButton.disabled = false;
+        }
+    });
+
+    try {
+        const { connectScheduleSync } = await import("./schedule-sync.js");
+        scheduleSync = await connectScheduleSync({
+            onState: (sharedState) => {
+                if (!sharedState) {
+                    return;
+                }
+                if (hasPendingScheduleChanges || saveTimer || scheduleSaveInFlight) {
+                    pendingRemoteState = sharedState;
+                    return;
+                }
+                applySharedState(sharedState);
+            },
+            onConnectionStatus: (connectionStatus, error) => {
+                if (connectionStatus === "CHANNEL_ERROR" || connectionStatus === "TIMED_OUT") {
+                    setStatus(`Supabase realtime is unavailable; refreshing may be needed. ${error?.message || ""}`);
+                }
+            }
+        });
+        syncReady = true;
+        if (scheduleSync.initialState) {
+            applySharedState(scheduleSync.initialState, "Connected to Supabase. Shared schedule is live.");
+        } else {
+            editorReady = !isAdmin;
+            if (weekNumberInput) {
+                weekNumberInput.disabled = true;
+            }
+            const resetButton = document.getElementById("reset-schedule");
+            if (resetButton) {
+                resetButton.disabled = true;
+            }
+            setStatus("No shared schedule exists yet. Import the current Firebase data as super admin.");
+        }
+    } catch (error) {
+        editorReady = !isAdmin;
+        storageError = `Could not connect to Supabase. Changes will stay in this browser: ${error.message}`;
+        setStatus(storageError);
+    }
+
+    if (weekNumberInput) {
+        weekNumberInput.disabled = !isAdmin || !editorReady;
+    }
 
     function renderField(item, field, label, parent, editable) {
         const element = document.createElement(field === "course" ? "strong" : "span");
@@ -715,53 +649,59 @@
     }
 
     const save = (debounce = false) => {
-        setStatus(firebaseReady
+        setStatus(syncReady
             ? "Saving changes to the shared schedule..."
             : "Saving changes in this browser...");
+        hasPendingScheduleChanges = true;
         window.clearTimeout(saveTimer);
-        const persist = () => {
+        const persist = async () => {
             saveTimer = undefined;
-            if (!firebaseReady) {
+            if (!scheduleSync || !syncReady) {
                 try {
                     localStorage.setItem(scheduleStorageKey, JSON.stringify(schedule));
                     localStorage.setItem(weekNumberStorageKey, String(weekNumber));
-                    hasLocalScheduleChanges = true;
-                    if (hasLocalWeekChanges) {
-                        localStorage.setItem(weekNumberPendingKey, "true");
-                    }
                 } catch (error) {
                     setStatus(`Could not save changes in this browser: ${error.message}`);
+                    hasPendingScheduleChanges = false;
                     return;
                 }
-                setStatus("Changes saved in this browser only. Shared sync is disabled.");
+                hasPendingScheduleChanges = false;
+                setStatus("Changes saved in this browser only. Supabase is unavailable.");
                 return;
             }
             const savedSchedule = JSON.stringify(schedule);
             const savedWeekNumber = weekNumber;
-            firebase.setDoc(scheduleRef, {
-                schedule: serializeSchedule(schedule),
-                weekNumber
-            }).then(() => {
+            scheduleSaveInFlight = true;
+            try {
+                const savedState = await scheduleSync.saveSchedule(schedule, weekNumber);
                 const isCurrentSave = JSON.stringify(schedule) === savedSchedule &&
                     weekNumber === savedWeekNumber;
                 if (isCurrentSave) {
-                    hasLocalScheduleChanges = false;
-                    hasLocalWeekChanges = false;
+                    hasPendingScheduleChanges = false;
                 }
                 try {
                     localStorage.setItem(scheduleStorageKey, JSON.stringify(schedule));
                     localStorage.setItem(weekNumberStorageKey, String(weekNumber));
-                    if (isCurrentSave) {
-                        localStorage.removeItem(weekNumberPendingKey);
-                    }
                 } catch (error) {
-                    setStatus(`Schedule saved to Firebase, but could not be cached in this browser: ${error.message}`);
+                    setStatus(`Schedule synced, but could not be cached in this browser: ${error.message}`);
                     return;
                 }
-                setStatus("Changes saved. The schedule updates on other devices.");
-            }).catch((error) => {
-                setStatus(`Could not save changes to Firebase: ${error.message}`);
-            });
+                setStatus("Changes saved to Supabase and synced to other devices.");
+            } catch (error) {
+                hasPendingScheduleChanges = false;
+                if (pendingRemoteState) {
+                    applySharedState(pendingRemoteState, "The shared schedule changed; your save was rejected.");
+                    pendingRemoteState = null;
+                }
+                setStatus(`Could not save to Supabase: ${error.message}`);
+            } finally {
+                scheduleSaveInFlight = false;
+                if (pendingRemoteState) {
+                    const remoteState = pendingRemoteState;
+                    pendingRemoteState = null;
+                    applySharedState(remoteState);
+                }
+            }
         };
         if (debounce) {
             saveTimer = window.setTimeout(persist, 350);
@@ -838,10 +778,8 @@
                 return;
             }
             weekNumber = nextWeekNumber;
-            hasLocalWeekChanges = true;
             try {
                 localStorage.setItem(weekNumberStorageKey, String(weekNumber));
-                localStorage.setItem(weekNumberPendingKey, "true");
             } catch (error) {
                 setStatus(`Week number changed but could not be cached in this browser: ${error.message}`);
             }

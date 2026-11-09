@@ -26,6 +26,12 @@ on conflict (user_id) do update
 set role = excluded.role,
     teacher = null;
 
+insert into public.admin_profiles (user_id, role, teacher)
+values ('550e9840-2f3e-46af-90ca-d1596c967438', 'teacher', 'LI ZHENXINANG')
+on conflict (user_id) do update
+set role = excluded.role,
+    teacher = excluded.teacher;
+
 -- After creating an Auth user, assign its UUID a role in this table.
 -- Super admin:
 -- insert into public.admin_profiles (user_id, role)

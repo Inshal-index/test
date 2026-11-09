@@ -42,15 +42,18 @@
         <h1>Week <input id="week-number-editor" type="number" min="1" max="53"
             value="9" aria-label="Schedule week number" disabled> Schedule</h1>
         <div class="admin-tools">
-            <p>Changes are stored in this browser only while schedule data migration is in progress.</p>
+            <p>Schedule changes sync to Supabase and update on other devices.</p>
             <div class="admin-account-actions">
                 <span id="admin-role-label" class="admin-role-label"></span>
+                <button id="import-firebase-data" class="reset-button" type="button" hidden>
+                    Import current Firebase data
+                </button>
                 <button id="logout-admin" class="reset-button" type="button">Log out</button>
                 <button id="reset-schedule" class="reset-button" type="button">Restore default schedule</button>
             </div>
         </div>
         <p id="china-time" class="china-time" aria-live="polite">Getting current China Standard Time...</p>
-        <p id="schedule-status" class="schedule-status" aria-live="polite">Loading this browser's saved schedule...</p>
+        <p id="schedule-status" class="schedule-status" aria-live="polite">Connecting to Supabase...</p>
         <div class="table-wrapper">
             <table class="schedule-table">
                 <thead>
