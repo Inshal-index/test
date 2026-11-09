@@ -211,7 +211,7 @@
     const parseFirestoreSchedule = (value) => {
         const parsedSchedule = typeof value === "string" ? JSON.parse(value) : value;
         if (!isValidSchedule(parsedSchedule)) {
-            throw new Error("The Firebase schedule document has an invalid format.");
+            throw new Error("The saved schedule has an invalid format.");
         }
         return parsedSchedule;
     };
@@ -304,14 +304,9 @@
     window.setInterval(updateChinaClockAndHighlight, 1000);
     window.setInterval(syncChinaTime, 5 * 60 * 1000);
     window.addEventListener("resize", () => renderAnnouncement(announcement));
-    setStatus("Opening the editor and connecting to Firebase...");
+    setStatus("Opening the schedule in local-only mode...");
 
-    let firebase;
-    try {
-        firebase = await import("./firebase.js");
-    } catch (error) {
-        storageError = `Could not load Firebase: ${error.message}. Check your internet connection.`;
-    }
+    const firebase = null;
     const scheduleRef = firebase?.doc(firebase.db, "schedules", "current");
     const announcementRef = firebase?.doc(firebase.db, "announcements", "current");
     setStatus("Connecting to the shared schedule...");
@@ -405,7 +400,23 @@
         firebaseReady = true;
         editorReady = true;
     } catch (error) {
-        storageError = `Could not connect to Firebase: ${error.message}. Check that Firestore is enabled and its rules are published.`;
+        storageError = "Firebase is disabled. Schedule changes are saved in this browser only.";
+        try {
+            const savedSchedule = localStorage.getItem(scheduleStorageKey);
+            if (savedSchedule !== null) {
+                const parsedSchedule = JSON.parse(savedSchedule);
+                if (!isValidSchedule(parsedSchedule)) {
+                    throw new Error("The saved schedule has an invalid format.");
+                }
+                schedule = parsedSchedule;
+            }
+            const savedAnnouncement = localStorage.getItem(announcementStorageKey);
+            if (savedAnnouncement !== null) {
+                announcement = savedAnnouncement;
+            }
+        } catch (localError) {
+            storageError = `Firebase is disabled, and the browser's saved data could not be loaded: ${localError.message}`;
+        }
         editorReady = true;
     } finally {
         window.clearTimeout(startupTimeout);
@@ -549,7 +560,7 @@
             setStatus(`The notification is shown here, but could not be cached: ${error.message}`);
         }
         if (!firebaseReady) {
-            setStatus("The notification is shown here but Firebase is not connected.");
+            setStatus("The announcement is saved in this browser only. Shared sync is disabled.");
             return;
         }
         firebase?.setDoc(announcementRef, { message }).then(() => {
@@ -706,7 +717,7 @@
     const save = (debounce = false) => {
         setStatus(firebaseReady
             ? "Saving changes to the shared schedule..."
-            : "Saving changes in this browser; Firebase is not connected...");
+            : "Saving changes in this browser...");
         window.clearTimeout(saveTimer);
         const persist = () => {
             saveTimer = undefined;
@@ -722,7 +733,7 @@
                     setStatus(`Could not save changes in this browser: ${error.message}`);
                     return;
                 }
-                setStatus("Changes saved in this browser only. Connect to Firebase to sync across devices.");
+                setStatus("Changes saved in this browser only. Shared sync is disabled.");
                 return;
             }
             const savedSchedule = JSON.stringify(schedule);
