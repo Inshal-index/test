@@ -327,6 +327,7 @@
         if (!sharedState) {
             return;
         }
+        const wasEditorReady = editorReady;
         try {
             const updatedSchedule = parseScheduleData(sharedState.schedule);
             if (!isValidWeekNumber(sharedState.week_number) ||
@@ -350,7 +351,7 @@
                 resetButton.disabled = !isSuperAdmin;
             }
             cacheCurrentState();
-            if (hasVisibleChanges) {
+            if (hasVisibleChanges || !wasEditorReady) {
                 render();
                 renderAnnouncement(announcement);
                 updateChinaClockAndHighlight();
